@@ -1,0 +1,14 @@
+# Dépendances pour SymGuard - Vérificateur de liens symboliques
+# Optimisé pour serveur ssd-83774 (Ubuntu 22.04.5 LTS - aarch64)
+
+# Dépendances principales
+requests>=2.31.0
+urllib3>=2.0.0
+
+# Monitoring système (optionnel - utilisé si disponible)
+psutil>=5.9.0
+
+# Développement et debug (optionnel)
+# pytest>=7.0.0
+# black>=23.0.0
+# flake8>=6.0.0

@@ -16,23 +16,39 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-# Détection automatique de l'utilisateur
-current_user = os.environ.get('USER', os.environ.get('USERNAME', 'user'))
+# Détection automatique de l'utilisateur et environnement serveur
+current_user = os.environ.get('USER', os.environ.get('USERNAME', 'kesurof'))
 
-# Configuration du logging
+# Configuration adaptée au serveur (ssd-83774)
+SERVER_CONFIG = {
+    'max_workers': 8,  # Optimisé pour 4 cœurs aarch64
+    'user': current_user,
+    'home_dir': os.environ.get('HOME', f'/home/{current_user}'),
+    'settings_source': os.environ.get('SETTINGS_SOURCE', f'/home/{current_user}/seedbox-compose'),
+    'virtual_env': os.environ.get('VIRTUAL_ENV', f'/home/{current_user}/seedbox-compose/venv'),
+    'python_executable': f'{os.environ.get("VIRTUAL_ENV", f"/home/{current_user}/seedbox-compose/venv")}/bin/python3'
+}
+
+# Configuration du logging avec rotation et gestion d'espace disque
+log_file = os.path.join(SERVER_CONFIG['home_dir'], 'symlink_maintenance.log')
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('symlink_maintenance.log'),
+        logging.FileHandler(log_file, maxBytes=10*1024*1024, backupCount=3),  # 10MB max, 3 backups
         logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
 
 class AdvancedSymlinkChecker:
-    def __init__(self, max_workers: int = 6):
-        self.max_workers = max_workers
+    def __init__(self, max_workers: int = None):
+        # Utilise la config serveur ou la valeur par défaut optimisée
+        self.max_workers = max_workers or SERVER_CONFIG['max_workers']
+        self.user = SERVER_CONFIG['user']
+        self.home_dir = SERVER_CONFIG['home_dir']
+        self.settings_source = SERVER_CONFIG['settings_source']
+        
         self.stats = {
             'total_analyzed': 0,
             'phase1_ok': 0,
@@ -42,15 +58,23 @@ class AdvancedSymlinkChecker:
             'phase1_io_error': 0,
             'phase2_analyzed': 0,
             'phase2_corrupted': 0,
-            'files_deleted': 0
+            'files_deleted': 0,
+            'server_info': {
+                'hostname': os.uname().nodename,
+                'architecture': os.uname().machine,
+                'user': self.user,
+                'python_version': f"{os.sys.version_info.major}.{os.sys.version_info.minor}.{os.sys.version_info.micro}"
+            }
         }
         self.deleted_files = []
         self.all_problems = []
         
-        # Configuration des serveurs média
+        # Configuration des serveurs média adaptée au serveur
         self.media_config = {
-            'sonarr': {'port': 8989, 'api_version': 'v3'},
-            'radarr': {'port': 7878, 'api_version': 'v3'}
+            'sonarr': {'port': 8989, 'api_version': 'v3', 'container': 'sonarr'},
+            'radarr': {'port': 7878, 'api_version': 'v3', 'container': 'radarr'},
+            'bazarr': {'port': 6767, 'api_version': 'v1', 'container': 'bazarr'},
+            'prowlarr': {'port': 9696, 'api_version': 'v1', 'container': 'prowlarr'}
         }
         self.session = self._create_session()
         
@@ -247,7 +271,7 @@ class AdvancedSymlinkChecker:
             return []
         
         # Construire les chemins complets et afficher la sélection
-        base_path = "/home/kesurof/Medias"
+        base_path = f"{self.home_dir}/Medias"  # Adapté au serveur
         selected_paths = [os.path.join(base_path, dirname) for dirname in selected_dirs]
         total_selected_links = sum(directory_counts[dirname] for dirname in selected_dirs)
         
@@ -649,71 +673,199 @@ class AdvancedSymlinkChecker:
         return report_file
     
     def get_container_ip(self, container_name: str) -> Optional[str]:
-        """Récupère l'IP d'un conteneur Docker"""
+        """Récupère l'IP d'un conteneur Docker avec support multi-réseau"""
         try:
+            # Essayer d'abord le réseau traefik_proxy
             cmd = f"docker inspect {container_name} --format='{{{{.NetworkSettings.Networks.traefik_proxy.IPAddress}}}}'"
             result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+            
             if result.returncode == 0 and result.stdout.strip():
-                return result.stdout.strip()
+                ip = result.stdout.strip().strip("'\"")
+                if ip and ip != '<no value>':
+                    return ip
+            
+            # Fallback: essayer le réseau par défaut (bridge)
+            cmd = f"docker inspect {container_name} --format='{{{{.NetworkSettings.IPAddress}}}}'"
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+            
+            if result.returncode == 0 and result.stdout.strip():
+                ip = result.stdout.strip().strip("'\"")
+                if ip and ip != '<no value>':
+                    return ip
+            
+            # Fallback: localhost si conteneur en mode host
+            if self._is_container_running(container_name):
+                return '127.0.0.1'
+                
         except Exception as e:
             logger.error(f"Erreur IP container {container_name}: {e}")
         return None
     
-    def get_api_key(self, service: str) -> Optional[str]:
-        """Récupère la clé API d'un service"""
+    def _is_container_running(self, container_name: str) -> bool:
+        """Vérifie si un conteneur Docker est en cours d'exécution"""
         try:
-            settings_storage = os.environ.get('SETTINGS_STORAGE', '/opt/seedbox/docker')
-            current_user = os.environ.get('USER', 'kesurof')
-            config_path = f"{settings_storage}/docker/{current_user}/{service}/config/config.xml"
+            cmd = f"docker ps --filter name={container_name} --format '{{{{.Names}}}}'"
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=5)
+            return container_name in result.stdout
+        except:
+            return False
+    
+    def get_api_key(self, service: str) -> Optional[str]:
+        """Récupère la clé API d'un service avec chemins adaptés au serveur"""
+        try:
+            # Chemins possibles pour les configurations
+            config_paths = [
+                f"{self.settings_source}/docker/{self.user}/{service}/config/config.xml",
+                f"/opt/seedbox/docker/{self.user}/{service}/config/config.xml",
+                f"{self.home_dir}/.config/{service}/config.xml",
+                f"/docker/{self.user}/{service}/config/config.xml"
+            ]
             
-            if not os.path.exists(config_path):
-                return None
-                
-            cmd = f"sed -n 's/.*<ApiKey>\\(.*\\)<\\/ApiKey>.*/\\1/p' '{config_path}'"
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-            return result.stdout.strip() if result.returncode == 0 else None
+            for config_path in config_paths:
+                if os.path.exists(config_path):
+                    try:
+                        # Méthode 1: sed pour extraire l'API key
+                        cmd = f"sed -n 's/.*<ApiKey>\\(.*\\)<\\/ApiKey>.*/\\1/p' '{config_path}'"
+                        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=5)
+                        
+                        if result.returncode == 0 and result.stdout.strip():
+                            api_key = result.stdout.strip()
+                            if len(api_key) > 10:  # Validation basique
+                                logger.info(f"API key trouvée pour {service} dans {config_path}")
+                                return api_key
+                        
+                        # Méthode 2: lecture directe du fichier
+                        with open(config_path, 'r') as f:
+                            content = f.read()
+                            import re
+                            match = re.search(r'<ApiKey>([^<]+)</ApiKey>', content)
+                            if match:
+                                api_key = match.group(1)
+                                if len(api_key) > 10:
+                                    logger.info(f"API key trouvée pour {service} (lecture directe)")
+                                    return api_key
+                    
+                    except Exception as e:
+                        logger.warning(f"Erreur lecture config {config_path}: {e}")
+                        continue
+            
+            logger.warning(f"Aucune API key trouvée pour {service}")
+            return None
             
         except Exception as e:
             logger.error(f"Erreur API key {service}: {e}")
             return None
     
     def trigger_media_scans(self):
-        """Déclenche les scans Sonarr/Radarr"""
+        """Déclenche les scans Sonarr/Radarr/Bazarr/Prowlarr avec gestion d'erreurs améliorée"""
         print(f"\n🔄 Déclenchement des scans serveurs média...")
         
+        scan_results = {}
+        
         for service, config in self.media_config.items():
+            scan_results[service] = {'status': 'unknown', 'commands': []}
+            
             try:
-                ip = self.get_container_ip(service)
+                # Vérifier si le conteneur existe et fonctionne
+                if not self._is_container_running(config['container']):
+                    print(f"⚠️ {service}: conteneur non trouvé ou arrêté")
+                    scan_results[service]['status'] = 'container_down'
+                    continue
+                
+                ip = self.get_container_ip(config['container'])
                 api_key = self.get_api_key(service)
                 
-                if not ip or not api_key:
-                    print(f"⚠️ {service}: IP ou API key manquante")
+                if not ip:
+                    print(f"⚠️ {service}: IP non trouvée")
+                    scan_results[service]['status'] = 'no_ip'
+                    continue
+                    
+                if not api_key:
+                    print(f"⚠️ {service}: API key manquante")
+                    scan_results[service]['status'] = 'no_api_key'
                     continue
                 
                 url = f"http://{ip}:{config['port']}/api/{config['api_version']}/command"
                 headers = {"Content-Type": "application/json", "X-Api-Key": api_key}
                 
+                # Commandes spécifiques par service
                 commands = {
-                    'sonarr': ['RescanSeries', 'missingEpisodeSearch'],
-                    'radarr': ['RescanMovie', 'MissingMoviesSearch']
+                    'sonarr': [
+                        {'name': 'RescanSeries', 'desc': 'Scan séries'},
+                        {'name': 'MissingEpisodeSearch', 'desc': 'Recherche épisodes manquants'}
+                    ],
+                    'radarr': [
+                        {'name': 'RescanMovie', 'desc': 'Scan films'},
+                        {'name': 'MissingMoviesSearch', 'desc': 'Recherche films manquants'}
+                    ],
+                    'bazarr': [
+                        {'name': 'SeriesSearchMissing', 'desc': 'Recherche sous-titres séries'},
+                        {'name': 'MoviesSearchMissing', 'desc': 'Recherche sous-titres films'}
+                    ],
+                    'prowlarr': [
+                        {'name': 'IndexerSearch', 'desc': 'Test indexeurs'}
+                    ]
                 }
                 
-                for command in commands.get(service, []):
-                    data = {"name": command}
-                    response = self.session.post(url, json=data, headers=headers, timeout=30)
-                    response.raise_for_status()
-                    print(f"✅ {service}: {command} lancé")
-                    time.sleep(2)
+                service_commands = commands.get(service, [])
+                successful_commands = []
+                
+                for command_info in service_commands:
+                    try:
+                        command = command_info['name']
+                        description = command_info['desc']
+                        
+                        data = {"name": command}
+                        response = self.session.post(url, json=data, headers=headers, timeout=30)
+                        response.raise_for_status()
+                        
+                        print(f"✅ {service}: {description} lancé")
+                        successful_commands.append(command)
+                        time.sleep(2)  # Pause entre commandes
+                        
+                    except requests.exceptions.RequestException as e:
+                        print(f"❌ {service} ({command}): {e}")
+                        logger.error(f"Erreur commande {service}/{command}: {e}")
+                
+                scan_results[service] = {
+                    'status': 'success' if successful_commands else 'failed',
+                    'commands': successful_commands,
+                    'ip': ip
+                }
                     
             except Exception as e:
-                print(f"❌ {service}: {e}")
+                print(f"❌ {service}: erreur générale - {e}")
+                scan_results[service]['status'] = 'error'
+                logger.error(f"Erreur générale {service}: {e}")
+        
+        # Résumé des scans
+        print(f"\n📊 Résumé des scans média:")
+        for service, result in scan_results.items():
+            status = result['status']
+            if status == 'success':
+                print(f"✅ {service}: {len(result['commands'])} commandes exécutées")
+            elif status == 'container_down':
+                print(f"⚠️ {service}: conteneur arrêté")
+            elif status == 'no_ip':
+                print(f"⚠️ {service}: IP non trouvée")
+            elif status == 'no_api_key':
+                print(f"⚠️ {service}: API key manquante")
+            else:
+                print(f"❌ {service}: échec")
+        
+        return scan_results
     
     def print_final_summary(self, mode: str):
-        """Affiche le résumé final"""
+        """Affiche le résumé final avec informations serveur"""
         print("\n" + "="*60)
         print("📊 RÉSUMÉ FINAL")
         print("="*60)
-        print(f"Mode d'exécution: {mode.upper()}")
+        print(f"🖥️ Serveur: {self.stats['server_info']['hostname']} ({self.stats['server_info']['architecture']})")
+        print(f"👤 Utilisateur: {self.stats['server_info']['user']}")
+        print(f"🐍 Python: {self.stats['server_info']['python_version']}")
+        print(f"⚙️ Workers: {self.max_workers}")
+        print(f"📁 Mode: {mode.upper()}")
+        
         print(f"\n=== PHASE 1 (tests basiques) ===")
         print(f"Total analysé: {self.stats['total_analyzed']:,}")
         print(f"✅ OK: {self.stats['phase1_ok']:,}")
@@ -743,52 +895,204 @@ class AdvancedSymlinkChecker:
             print(f"⚠️ PROBLÈMES TROUVÉS: {total_problems:,}")
         else:
             print(f"🎉 AUCUN PROBLÈME DÉTECTÉ!")
+        
+        # Informations système
+        print(f"\n=== SYSTÈME ===")
+        print(f"💾 Logs: {log_file}")
+        print(f"🏠 Home: {self.home_dir}")
+        print(f"⚙️ Settings: {self.settings_source}")
+    
+    def check_system_resources(self) -> Dict[str, any]:
+        """Vérifie l'état des ressources système avant le scan"""
+        resources = {
+            'memory': {'available': False, 'usage': 0},
+            'disk': {'available': False, 'usage': 0},
+            'load': {'average': 0, 'acceptable': False},
+            'ffprobe': {'available': False, 'version': ''}
+        }
+        
+        try:
+            # Vérification mémoire
+            import psutil
+            memory = psutil.virtual_memory()
+            resources['memory'] = {
+                'available': memory.available > 1024**3,  # > 1GB disponible
+                'usage': memory.percent,
+                'available_gb': memory.available / (1024**3)
+            }
+            
+            # Vérification espace disque
+            disk = psutil.disk_usage(self.home_dir)
+            resources['disk'] = {
+                'available': disk.free > 5 * 1024**3,  # > 5GB libre
+                'usage': (disk.used / disk.total) * 100,
+                'free_gb': disk.free / (1024**3)
+            }
+            
+            # Charge système
+            load_avg = os.getloadavg()[0]  # 1 minute
+            resources['load'] = {
+                'average': load_avg,
+                'acceptable': load_avg < 2.0  # Acceptable pour 4 cœurs
+            }
+            
+        except ImportError:
+            # Fallback si psutil non disponible
+            try:
+                # Méthode basique pour la charge
+                with open('/proc/loadavg', 'r') as f:
+                    load_avg = float(f.read().split()[0])
+                    resources['load'] = {
+                        'average': load_avg,
+                        'acceptable': load_avg < 2.0
+                    }
+            except:
+                pass
+        
+        # Vérification ffprobe
+        try:
+            result = subprocess.run(['ffprobe', '-version'], 
+                                  stdout=subprocess.PIPE, 
+                                  stderr=subprocess.DEVNULL, 
+                                  timeout=5)
+            if result.returncode == 0:
+                version_line = result.stdout.decode().split('\n')[0]
+                resources['ffprobe'] = {
+                    'available': True,
+                    'version': version_line.split()[-1] if version_line else 'unknown'
+                }
+        except:
+            resources['ffprobe'] = {'available': False, 'version': ''}
+        
+        return resources
+    
+    def print_system_status(self):
+        """Affiche l'état du système avant le scan"""
+        print(f"\n🔍 VÉRIFICATION SYSTÈME")
+        print("="*50)
+        
+        resources = self.check_system_resources()
+        
+        # Mémoire
+        if 'available_gb' in resources['memory']:
+            status = "✅" if resources['memory']['available'] else "⚠️"
+            print(f"{status} Mémoire: {resources['memory']['usage']:.1f}% utilisée, "
+                  f"{resources['memory']['available_gb']:.1f}GB disponible")
+        
+        # Disque
+        if 'free_gb' in resources['disk']:
+            status = "✅" if resources['disk']['available'] else "⚠️"
+            print(f"{status} Disque: {resources['disk']['usage']:.1f}% utilisé, "
+                  f"{resources['disk']['free_gb']:.1f}GB libre")
+        
+        # Charge système
+        if resources['load']['average']:
+            status = "✅" if resources['load']['acceptable'] else "⚠️"
+            print(f"{status} Charge: {resources['load']['average']:.2f} "
+                  f"({'acceptable' if resources['load']['acceptable'] else 'élevée'})")
+        
+        # ffprobe
+        status = "✅" if resources['ffprobe']['available'] else "❌"
+        version = f" ({resources['ffprobe']['version']})" if resources['ffprobe']['version'] else ""
+        print(f"{status} ffprobe: {'disponible' if resources['ffprobe']['available'] else 'non trouvé'}{version}")
+        
+        # Recommandations
+        warnings = []
+        if not resources['memory'].get('available', True):
+            warnings.append("Mémoire faible - réduisez le nombre de workers")
+        if not resources['disk'].get('available', True):
+            warnings.append("Espace disque faible - vérifiez les logs")
+        if not resources['load'].get('acceptable', True):
+            warnings.append("Charge système élevée - reportez le scan")
+        
+        if warnings:
+            print(f"\n⚠️ RECOMMANDATIONS:")
+            for warning in warnings:
+                print(f"   • {warning}")
+        else:
+            print(f"\n✅ Système prêt pour le scan")
+        
+        return resources
 
 def main():
-    parser = argparse.ArgumentParser(description='Vérificateur avancé de liens symboliques - 2 phases')
-    parser.add_argument('path', nargs='?', default='/home/kesurof/Medias', help='Répertoire de base à scanner')
-    parser.add_argument('-j', '--jobs', type=int, default=6, help='Nombre de workers parallèles (défaut: 6)')
+    parser = argparse.ArgumentParser(description='Vérificateur avancé de liens symboliques - 2 phases (ssd-83774)')
+    parser.add_argument('path', nargs='?', default=f'{SERVER_CONFIG["home_dir"]}/Medias', 
+                       help=f'Répertoire de base à scanner (défaut: {SERVER_CONFIG["home_dir"]}/Medias)')
+    parser.add_argument('-j', '--jobs', type=int, default=SERVER_CONFIG['max_workers'], 
+                       help=f'Nombre de workers parallèles (défaut: {SERVER_CONFIG["max_workers"]} - optimisé pour aarch64)')
+    parser.add_argument('--dry-run', action='store_true', help='Force le mode dry-run')
+    parser.add_argument('--real', action='store_true', help='Force le mode réel')
+    parser.add_argument('--quick', action='store_true', help='Scan basique uniquement')
     
     args = parser.parse_args()
     
     print("🚀 Vérificateur avancé de liens symboliques - 2 phases")
+    print(f"🖥️ Serveur: {os.uname().nodename} ({os.uname().machine})")
+    print(f"👤 Utilisateur: {SERVER_CONFIG['user']}")
     print(f"📁 Répertoire de base: {args.path}")
     print(f"⚡ Workers parallèles: {args.jobs}")
+    print(f"🐍 Python: {SERVER_CONFIG['python_executable']}")
+    
+    # Vérifications préliminaires
+    if not os.path.exists(args.path):
+        print(f"❌ Répertoire inexistant: {args.path}")
+        return 1
+    
+    if not os.access(args.path, os.R_OK):
+        print(f"❌ Pas d'accès en lecture: {args.path}")
+        return 1
     
     try:
         checker = AdvancedSymlinkChecker(max_workers=args.jobs)
         
-        # 0. Nettoyage des anciens logs
+        # 0. Vérification système
+        system_resources = checker.print_system_status()
+        
+        # 1. Nettoyage des anciens logs
         checker.cleanup_old_logs()
         
         # 1. Choix du mode d'exécution
-        mode = checker.choose_execution_mode()
+        if args.dry_run:
+            mode = 'dry-run'
+            print("✅ Mode DRY-RUN forcé par --dry-run")
+        elif args.real:
+            mode = 'real'
+            print("⚠️ Mode RÉEL forcé par --real")
+        else:
+            mode = checker.choose_execution_mode()
         
         # 2. Sélection interactive des répertoires
         selected_paths = checker.interactive_directory_selection(args.path)
         if not selected_paths:
             print("❌ Aucun répertoire sélectionné, arrêt")
-            return
+            return 1
         
         # 3. Vérification ffprobe et choix de profondeur
-        ffprobe_available, media_count, time_estimate = checker.check_ffprobe_and_estimate(selected_paths)
-        verification_depth = checker.choose_verification_depth(ffprobe_available, time_estimate)
+        if args.quick:
+            verification_depth = 'basic'
+            print("✅ Scan basique forcé par --quick")
+        else:
+            ffprobe_available, media_count, time_estimate = checker.check_ffprobe_and_estimate(selected_paths)
+            verification_depth = checker.choose_verification_depth(ffprobe_available, time_estimate)
+        
+        # 4. Vérification de l'état du système et des ressources
+        checker.print_system_status()
         
         start_time = time.time()
         
-        # 4. Phase 1 - Scan basique
+        # 5. Phase 1 - Scan basique
         ok_files, phase1_problems = checker.phase1_scan(selected_paths)
         
-        # 5. Phase 2 - Scan ffprobe (si choisi)
+        # 6. Phase 2 - Scan ffprobe (si choisi)
         phase2_problems = []
         if verification_depth == 'full' and ok_files:
             phase2_problems = checker.phase2_scan(ok_files)
         
-        # 6. Regroupement de tous les problèmes
+        # 7. Regroupement de tous les problèmes
         all_problems = phase1_problems + phase2_problems
         checker.all_problems = all_problems
         
-        # 7. Traitement selon le mode
+        # 8. Traitement selon le mode
         if mode == 'real' and all_problems:
             if checker.confirm_deletion(all_problems):
                 deleted_files = checker.delete_files(all_problems)
@@ -798,22 +1102,26 @@ def main():
                 print("❌ Suppression annulée")
                 mode = 'dry-run'  # Traiter comme un dry-run
         
-        # 8. Sauvegarde des rapports
+        # 9. Sauvegarde des rapports
         checker.save_full_report(all_problems, mode)
         
-        # 9. Scan des serveurs média
+        # 10. Scan des serveurs média
         checker.trigger_media_scans()
         
-        # 10. Résumé final
+        # 11. Résumé final
         elapsed = time.time() - start_time
         checker.print_final_summary(mode)
         print(f"\n⏱️ Temps total: {elapsed//60:.0f}m{elapsed%60:.0f}s")
         
+        return 0
+        
     except KeyboardInterrupt:
         print("\n❌ Opération interrompue par l'utilisateur")
+        return 130
     except Exception as e:
         logger.error(f"Erreur fatale: {e}")
         print(f"❌ Erreur fatale: {e}")
+        return 1
 
 if __name__ == "__main__":
     main()
