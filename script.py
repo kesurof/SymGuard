@@ -1129,9 +1129,14 @@ class AdvancedSymlinkChecker:
                         print("\n⏭️ Mise à jour ignorée")
                 else:
                     print(f"✅ Version actuelle (v{current_version}) - à jour")
+            elif response.status_code == 404:
+                print(f"📦 Aucune release disponible sur GitHub pour le moment")
+                print(f"✅ Version actuelle: v{current_version}")
             else:
                 print(f"⚠️ Impossible de vérifier les mises à jour (GitHub API: {response.status_code})")
                 
+        except requests.exceptions.RequestException as e:
+            print(f"⚠️ Erreur de connexion pour la vérification des mises à jour: {e}")
         except Exception as e:
             print(f"⚠️ Erreur vérification mise à jour: {e}")
         
