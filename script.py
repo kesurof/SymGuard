@@ -3,6 +3,7 @@
 # SymGuard - Vérificateur Avancé de Liens Symboliques
 # Version 2.0.1
 # Optimisé pour serveurs Linux avec gestion des mises à jour
+# Dernière optimisation: Nettoyage du projet et suppression des fichiers dupliqués
 
 import os
 import subprocess
