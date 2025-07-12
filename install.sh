@@ -189,6 +189,60 @@ test_installation() {
     fi
 }
 
+# Fonction de détection d'anciennes installations
+detect_old_installations() {
+    print_status "Détection d'anciennes installations..."
+    
+    local old_installations=()
+    local old_locations=(
+        "$HOME/symlink-checker"
+        "$HOME/scripts/symlink-checker" 
+        "$HOME/old-symguard"
+        "/opt/symlink-checker"
+    )
+    
+    # Rechercher d'anciennes versions
+    for location in "${old_locations[@]}"; do
+        if [[ -d "$location" ]]; then
+            old_installations+=("$location")
+            print_warning "Ancienne installation détectée: $location"
+        fi
+    done
+    
+    # Rechercher des scripts isolés avec anciennes signatures
+    local old_scripts=$(find /home -name "*.py" -exec grep -l "symlink.*checker\|old.*symguard" {} \; 2>/dev/null | head -5)
+    for script in $old_scripts; do
+        if [[ -f "$script" ]] && [[ "$script" != *"/SymGuard/"* ]]; then
+            old_installations+=("$(dirname "$script")")
+            print_warning "Ancien script détecté: $script"
+        fi
+    done
+    
+    if [[ ${#old_installations[@]} -gt 0 ]]; then
+        print_warning "Anciennes installations détectées!"
+        echo "Emplacements trouvés:"
+        for installation in "${old_installations[@]}"; do
+            echo "  - $installation"
+        done
+        echo
+        
+        if command -v curl &> /dev/null; then
+            read -p "Voulez-vous les désinstaller automatiquement avant l'installation ? (y/N): " -r
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                print_status "Téléchargement du script de désinstallation..."
+                curl -fsSL https://raw.githubusercontent.com/kesurof/SymGuard/main/uninstall.sh | bash
+                echo
+                print_status "Poursuite de l'installation de la nouvelle version..."
+            fi
+        else
+            print_warning "Désinstallez manuellement les anciennes versions avant de continuer"
+            print_warning "Ou utilisez: curl -fsSL https://raw.githubusercontent.com/kesurof/SymGuard/main/uninstall.sh | bash"
+        fi
+    else
+        print_success "Aucune ancienne installation détectée"
+    fi
+}
+
 # Affichage des informations finales
 show_final_info() {
     echo
@@ -234,6 +288,7 @@ main() {
     
     # Étapes d'installation
     detect_os
+    detect_old_installations
     install_system_deps
     install_python_deps
     check_tools
