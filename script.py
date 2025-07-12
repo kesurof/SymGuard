@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 
+# SymGuard - Vérificateur Avancé de Liens Symboliques
+# Version 2.0.1
+# Optimisé pour serveurs Linux avec gestion des mises à jour
+
 import os
 import subprocess
 import json
@@ -16,6 +20,9 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+# Version du script
+SCRIPT_VERSION = "2.0.1"
+
 # Détection automatique de l'utilisateur et environnement serveur
 current_user = os.environ.get('USER', os.environ.get('USERNAME', 'user'))
 
@@ -31,11 +38,15 @@ SERVER_CONFIG = {
 
 # Configuration du logging avec rotation et gestion d'espace disque
 log_file = os.path.join(SERVER_CONFIG['home_dir'], 'symlink_maintenance.log')
+
+# Configuration du handler de fichier avec rotation
+from logging.handlers import RotatingFileHandler
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler(log_file, maxBytes=10*1024*1024, backupCount=3),  # 10MB max, 3 backups
+        RotatingFileHandler(log_file, maxBytes=10*1024*1024, backupCount=3),  # 10MB max, 3 backups
         logging.StreamHandler()
     ]
 )
@@ -1014,6 +1025,66 @@ class AdvancedSymlinkChecker:
         
         return resources
 
+    def check_for_updates(self):
+        """Vérifie s'il y a des mises à jour disponibles sur GitHub"""
+        try:
+            import subprocess
+            import json
+            import requests
+            
+            # Version actuelle
+            current_version = SCRIPT_VERSION
+            
+            # Récupérer la dernière version depuis GitHub API
+            api_url = "https://api.github.com/repos/kesurof/SymGuard/releases/latest"
+            
+            print(f"\n🔍 Vérification des mises à jour...")
+            response = requests.get(api_url, timeout=10)
+            
+            if response.status_code == 200:
+                latest_release = response.json()
+                latest_version = latest_release.get('tag_name', '').lstrip('v')
+                
+                if latest_version and latest_version != current_version:
+                    print(f"🆕 Nouvelle version disponible: v{latest_version} (actuelle: v{current_version})")
+                    print(f"📝 Notes: {latest_release.get('name', 'Pas de description')}")
+                    
+                    # Proposer la mise à jour
+                    try:
+                        update = input("Voulez-vous mettre à jour maintenant ? (y/N): ").strip().lower()
+                        if update in ['y', 'yes', 'o', 'oui']:
+                            self.update_script()
+                            return True
+                    except KeyboardInterrupt:
+                        print("\n⏭️ Mise à jour ignorée")
+                else:
+                    print(f"✅ Version actuelle (v{current_version}) - à jour")
+            else:
+                print(f"⚠️ Impossible de vérifier les mises à jour (GitHub API: {response.status_code})")
+                
+        except Exception as e:
+            print(f"⚠️ Erreur vérification mise à jour: {e}")
+        
+        return False
+    
+    def update_script(self):
+        """Met à jour le script depuis GitHub"""
+        try:
+            install_dir = "/home/kesurof/scripts"
+            update_script = f"{install_dir}/update-symguard.sh"
+            
+            if os.path.exists(update_script):
+                print(f"🔄 Exécution du script de mise à jour...")
+                result = subprocess.run([update_script], check=True)
+                print(f"✅ Mise à jour terminée ! Relancez le script.")
+                exit(0)
+            else:
+                print(f"❌ Script de mise à jour non trouvé: {update_script}")
+                print(f"💡 Relancez l'installation: cd {install_dir}/SymGuard && ./setup.sh")
+                
+        except Exception as e:
+            print(f"❌ Erreur lors de la mise à jour: {e}")
+
 def main():
     parser = argparse.ArgumentParser(description='Vérificateur avancé de liens symboliques - 2 phases')
     parser.add_argument('path', nargs='?', default=f'{SERVER_CONFIG["home_dir"]}/Medias', 
@@ -1023,6 +1094,8 @@ def main():
     parser.add_argument('--dry-run', action='store_true', help='Force le mode dry-run')
     parser.add_argument('--real', action='store_true', help='Force le mode réel')
     parser.add_argument('--quick', action='store_true', help='Scan basique uniquement')
+    parser.add_argument('--no-update-check', action='store_true', help='Ignorer la vérification de mise à jour')
+    parser.add_argument('--version', action='version', version=f'SymGuard v{SCRIPT_VERSION}')
     
     args = parser.parse_args()
     
@@ -1044,6 +1117,11 @@ def main():
     
     try:
         checker = AdvancedSymlinkChecker(max_workers=args.jobs)
+        
+        # Vérification des mises à jour (sauf si --no-update-check)
+        if not args.no_update_check:
+            if checker.check_for_updates():
+                return 0  # Script mis à jour, arrêter l'exécution actuelle
         
         # 0. Vérification système
         system_resources = checker.print_system_status()
