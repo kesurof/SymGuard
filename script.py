@@ -82,12 +82,7 @@ class AdvancedSymlinkChecker:
         self.all_problems = []
         
         # Configuration des serveurs média adaptée au serveur
-        self.media_config = {
-            'sonarr': {'port': 8989, 'api_version': 'v3', 'container': 'sonarr'},
-            'radarr': {'port': 7878, 'api_version': 'v3', 'container': 'radarr'},
-            'bazarr': {'port': 6767, 'api_version': 'v1', 'container': 'bazarr'},
-            'prowlarr': {'port': 9696, 'api_version': 'v1', 'container': 'prowlarr'}
-        }
+        self.media_config = self.load_media_config()
         self.session = self._create_session()
         
     def _create_session(self) -> requests.Session:
@@ -684,69 +679,98 @@ class AdvancedSymlinkChecker:
         print(f"📄 Rapport complet: {report_file}")
         return report_file
     
-    def get_container_ip(self, container_name: str) -> Optional[str]:
-        """Récupère l'IP d'un conteneur Docker avec support multi-réseau"""
+    def load_media_config(self) -> Dict[str, Dict]:
+        """Charge la configuration des serveurs média depuis un fichier de config ou utilise les valeurs par défaut"""
+        config_file = os.path.join(self.home_dir, '.symguard_config.json')
+        
+        # Configuration par défaut basée sur des URLs standard
+        default_config = {
+            'sonarr': {
+                'url': 'http://localhost:8989',
+                'api_key': None,
+                'enabled': True
+            },
+            'radarr': {
+                'url': 'http://localhost:7878', 
+                'api_key': None,
+                'enabled': True
+            },
+            'bazarr': {
+                'url': 'http://localhost:6767',
+                'api_key': None,
+                'enabled': True
+            },
+            'prowlarr': {
+                'url': 'http://localhost:9696',
+                'api_key': None,
+                'enabled': True
+            }
+        }
+        
+        # Essayer de charger depuis le fichier de config existant
+        if os.path.exists(config_file):
+            try:
+                with open(config_file, 'r') as f:
+                    loaded_config = json.load(f)
+                    # Fusionner avec la config par défaut
+                    for service in default_config:
+                        if service in loaded_config:
+                            default_config[service].update(loaded_config[service])
+                logger.info(f"Configuration chargée depuis {config_file}")
+            except Exception as e:
+                logger.warning(f"Erreur lecture config {config_file}: {e}")
+        
+        return default_config
+    
+    def save_media_config(self, config: Dict[str, Dict]):
+        """Sauvegarde la configuration des serveurs média"""
+        config_file = os.path.join(self.home_dir, '.symguard_config.json')
         try:
-            # Essayer d'abord le réseau traefik_proxy
-            cmd = f"docker inspect {container_name} --format='{{{{.NetworkSettings.Networks.traefik_proxy.IPAddress}}}}'"
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
-            
-            if result.returncode == 0 and result.stdout.strip():
-                ip = result.stdout.strip().strip("'\"")
-                if ip and ip != '<no value>':
-                    return ip
-            
-            # Fallback: essayer le réseau par défaut (bridge)
-            cmd = f"docker inspect {container_name} --format='{{{{.NetworkSettings.IPAddress}}}}'"
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
-            
-            if result.returncode == 0 and result.stdout.strip():
-                ip = result.stdout.strip().strip("'\"")
-                if ip and ip != '<no value>':
-                    return ip
-            
-            # Fallback: localhost si conteneur en mode host
-            if self._is_container_running(container_name):
-                return '127.0.0.1'
-                
+            with open(config_file, 'w') as f:
+                json.dump(config, f, indent=2)
+            logger.info(f"Configuration sauvegardée dans {config_file}")
         except Exception as e:
-            logger.error(f"Erreur IP container {container_name}: {e}")
-        return None
+            logger.error(f"Erreur sauvegarde config: {e}")
     
-    def _is_container_running(self, container_name: str) -> bool:
-        """Vérifie si un conteneur Docker est en cours d'exécution"""
-        try:
-            cmd = f"docker ps --filter name={container_name} --format '{{{{.Names}}}}'"
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=5)
-            return container_name in result.stdout
-        except:
-            return False
+    def get_service_url_and_key(self, service: str) -> Tuple[Optional[str], Optional[str]]:
+        """Récupère l'URL et la clé API d'un service"""
+        # Charger la configuration
+        media_config = self.load_media_config()
+        service_config = media_config.get(service, {})
+        
+        if not service_config.get('enabled', True):
+            return None, None
+        
+        url = service_config.get('url')
+        api_key = service_config.get('api_key')
+        
+        # Si pas d'API key, essayer de la détecter automatiquement
+        if not api_key:
+            api_key = self._detect_api_key(service, url)
+            if api_key:
+                # Sauvegarder la clé détectée
+                service_config['api_key'] = api_key
+                media_config[service] = service_config
+                self.save_media_config(media_config)
+        
+        return url, api_key
     
-    def get_api_key(self, service: str) -> Optional[str]:
-        """Récupère la clé API d'un service avec chemins adaptés au serveur"""
+    def _detect_api_key(self, service: str, base_url: str) -> Optional[str]:
+        """Essaie de détecter automatiquement l'API key depuis les fichiers de config"""
         try:
             # Chemins possibles pour les configurations
             config_paths = [
                 f"{self.settings_source}/docker/{self.user}/{service}/config/config.xml",
-                f"/opt/seedbox/docker/{self.user}/{service}/config/config.xml",
+                f"/opt/seedbox/docker/{self.user}/{service}/config/config.xml", 
                 f"{self.home_dir}/.config/{service}/config.xml",
-                f"/docker/{self.user}/{service}/config/config.xml"
+                f"/docker/{self.user}/{service}/config/config.xml",
+                f"/home/{self.user}/seedbox-compose/includes/config/{service}/config.xml"
             ]
             
             for config_path in config_paths:
                 if os.path.exists(config_path):
                     try:
-                        # Méthode 1: sed pour extraire l'API key
-                        cmd = f"sed -n 's/.*<ApiKey>\\(.*\\)<\\/ApiKey>.*/\\1/p' '{config_path}'"
-                        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=5)
-                        
-                        if result.returncode == 0 and result.stdout.strip():
-                            api_key = result.stdout.strip()
-                            if len(api_key) > 10:  # Validation basique
-                                logger.info(f"API key trouvée pour {service} dans {config_path}")
-                                return api_key
-                        
-                        # Méthode 2: lecture directe du fichier
+                        # Lecture directe du fichier XML
                         with open(config_path, 'r') as f:
                             content = f.read()
                             import re
@@ -754,73 +778,79 @@ class AdvancedSymlinkChecker:
                             if match:
                                 api_key = match.group(1)
                                 if len(api_key) > 10:
-                                    logger.info(f"API key trouvée pour {service} (lecture directe)")
+                                    logger.info(f"API key détectée pour {service} dans {config_path}")
                                     return api_key
-                    
                     except Exception as e:
-                        logger.warning(f"Erreur lecture config {config_path}: {e}")
+                        logger.debug(f"Erreur lecture {config_path}: {e}")
                         continue
             
-            logger.warning(f"Aucune API key trouvée pour {service}")
+            logger.debug(f"Aucune API key automatiquement détectée pour {service}")
             return None
             
         except Exception as e:
-            logger.error(f"Erreur API key {service}: {e}")
+            logger.error(f"Erreur détection API key {service}: {e}")
             return None
     
     def trigger_media_scans(self):
-        """Déclenche les scans Sonarr/Radarr/Bazarr/Prowlarr avec gestion d'erreurs améliorée"""
+        """Déclenche les scans Sonarr/Radarr/Bazarr/Prowlarr avec configuration améliorée"""
         print(f"\n🔄 Déclenchement des scans serveurs média...")
         
         scan_results = {}
         
-        for service, config in self.media_config.items():
+        # Services disponibles avec leurs commandes
+        services_commands = {
+            'sonarr': [
+                {'name': 'RescanSeries', 'desc': 'Scan séries'},
+                {'name': 'MissingEpisodeSearch', 'desc': 'Recherche épisodes manquants'}
+            ],
+            'radarr': [
+                {'name': 'RescanMovie', 'desc': 'Scan films'},
+                {'name': 'MissingMoviesSearch', 'desc': 'Recherche films manquants'}
+            ],
+            'bazarr': [
+                {'name': 'SeriesSearchMissing', 'desc': 'Recherche sous-titres séries'},
+                {'name': 'MoviesSearchMissing', 'desc': 'Recherche sous-titres films'}
+            ],
+            'prowlarr': [
+                {'name': 'IndexerSearch', 'desc': 'Test indexeurs'}
+            ]
+        }
+        
+        for service in services_commands.keys():
             scan_results[service] = {'status': 'unknown', 'commands': []}
             
             try:
-                # Vérifier si le conteneur existe et fonctionne
-                if not self._is_container_running(config['container']):
-                    print(f"⚠️ {service}: conteneur non trouvé ou arrêté")
-                    scan_results[service]['status'] = 'container_down'
-                    continue
+                # Récupérer URL et API key
+                url, api_key = self.get_service_url_and_key(service)
                 
-                ip = self.get_container_ip(config['container'])
-                api_key = self.get_api_key(service)
-                
-                if not ip:
-                    print(f"⚠️ {service}: IP non trouvée")
-                    scan_results[service]['status'] = 'no_ip'
+                if not url:
+                    print(f"⚠️ {service}: service désactivé")
+                    scan_results[service]['status'] = 'disabled'
                     continue
                     
                 if not api_key:
                     print(f"⚠️ {service}: API key manquante")
+                    print(f"   💡 Configurez manuellement dans ~/.symguard_config.json")
                     scan_results[service]['status'] = 'no_api_key'
                     continue
                 
-                url = f"http://{ip}:{config['port']}/api/{config['api_version']}/command"
+                # Test de connexion
                 headers = {"Content-Type": "application/json", "X-Api-Key": api_key}
                 
-                # Commandes spécifiques par service
-                commands = {
-                    'sonarr': [
-                        {'name': 'RescanSeries', 'desc': 'Scan séries'},
-                        {'name': 'MissingEpisodeSearch', 'desc': 'Recherche épisodes manquants'}
-                    ],
-                    'radarr': [
-                        {'name': 'RescanMovie', 'desc': 'Scan films'},
-                        {'name': 'MissingMoviesSearch', 'desc': 'Recherche films manquants'}
-                    ],
-                    'bazarr': [
-                        {'name': 'SeriesSearchMissing', 'desc': 'Recherche sous-titres séries'},
-                        {'name': 'MoviesSearchMissing', 'desc': 'Recherche sous-titres films'}
-                    ],
-                    'prowlarr': [
-                        {'name': 'IndexerSearch', 'desc': 'Test indexeurs'}
-                    ]
-                }
+                try:
+                    test_response = self.session.get(f"{url}/api/v3/system/status", headers=headers, timeout=10)
+                    if test_response.status_code != 200:
+                        print(f"⚠️ {service}: connexion échouée (HTTP {test_response.status_code})")
+                        scan_results[service]['status'] = 'connection_failed'
+                        continue
+                except Exception as e:
+                    print(f"⚠️ {service}: connexion impossible ({str(e)})")
+                    scan_results[service]['status'] = 'connection_error'
+                    continue
                 
-                service_commands = commands.get(service, [])
+                # Exécuter les commandes
                 successful_commands = []
+                service_commands = services_commands.get(service, [])
                 
                 for command_info in service_commands:
                     try:
@@ -828,7 +858,7 @@ class AdvancedSymlinkChecker:
                         description = command_info['desc']
                         
                         data = {"name": command}
-                        response = self.session.post(url, json=data, headers=headers, timeout=30)
+                        response = self.session.post(f"{url}/api/v3/command", json=data, headers=headers, timeout=30)
                         response.raise_for_status()
                         
                         print(f"✅ {service}: {description} lancé")
@@ -842,7 +872,7 @@ class AdvancedSymlinkChecker:
                 scan_results[service] = {
                     'status': 'success' if successful_commands else 'failed',
                     'commands': successful_commands,
-                    'ip': ip
+                    'url': url
                 }
                     
             except Exception as e:
@@ -856,16 +886,55 @@ class AdvancedSymlinkChecker:
             status = result['status']
             if status == 'success':
                 print(f"✅ {service}: {len(result['commands'])} commandes exécutées")
-            elif status == 'container_down':
-                print(f"⚠️ {service}: conteneur arrêté")
-            elif status == 'no_ip':
-                print(f"⚠️ {service}: IP non trouvée")
+            elif status == 'disabled':
+                print(f"⏭️ {service}: désactivé")
             elif status == 'no_api_key':
                 print(f"⚠️ {service}: API key manquante")
+            elif status == 'connection_failed':
+                print(f"⚠️ {service}: connexion échouée")
+            elif status == 'connection_error':
+                print(f"⚠️ {service}: erreur de connexion")
             else:
                 print(f"❌ {service}: échec")
         
+        # Afficher les instructions de configuration si nécessaire
+        missing_config = [s for s, r in scan_results.items() if r['status'] == 'no_api_key']
+        if missing_config:
+            self._show_config_instructions(missing_config)
+        
         return scan_results
+    
+    def _show_config_instructions(self, missing_services):
+        """Affiche les instructions de configuration"""
+        print(f"\n📝 CONFIGURATION REQUISE")
+        print("="*50)
+        print(f"Pour activer les scans des services manquants, créez le fichier:")
+        print(f"📁 {self.home_dir}/.symguard_config.json")
+        print(f"\nContenu exemple:")
+        
+        example_config = {}
+        for service in missing_services:
+            if service in ['sonarr', 'radarr']:
+                example_config[service] = {
+                    "url": f"http://localhost:{8989 if service == 'sonarr' else 7878}",
+                    "api_key": f"your_{service}_api_key_here",
+                    "enabled": True
+                }
+            elif service == 'bazarr':
+                example_config[service] = {
+                    "url": "http://localhost:6767",
+                    "api_key": f"your_{service}_api_key_here", 
+                    "enabled": True
+                }
+            elif service == 'prowlarr':
+                example_config[service] = {
+                    "url": "http://localhost:9696",
+                    "api_key": f"your_{service}_api_key_here",
+                    "enabled": True
+                }
+        
+        print(json.dumps(example_config, indent=2))
+        print(f"\n💡 Trouvez vos API keys dans les paramètres de chaque application")
     
     def print_final_summary(self, mode: str):
         """Affiche le résumé final avec informations serveur"""

@@ -1,0 +1,22 @@
+{
+  "sonarr": {
+    "url": "http://localhost:8989",
+    "api_key": "your_sonarr_api_key_here",
+    "enabled": true
+  },
+  "radarr": {
+    "url": "http://localhost:7878",
+    "api_key": "your_radarr_api_key_here",
+    "enabled": true
+  },
+  "bazarr": {
+    "url": "http://localhost:6767",
+    "api_key": "your_bazarr_api_key_here",
+    "enabled": true
+  },
+  "prowlarr": {
+    "url": "http://localhost:9696",
+    "api_key": "your_prowlarr_api_key_here",
+    "enabled": true
+  }
+}
