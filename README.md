@@ -1,10 +1,9 @@
 # SymGuard - Vérificateur Avancé de Liens Symboliques
 
-## 🖥️ Optimisé pour serveur ssd-83774
-- **OS**: Ubuntu 22.04.5 LTS
-- **Architecture**: aarch64 (Neoverse-N1)
-- **Utilisateur**: kesurof
-- **Python**: 3.10.12 (environnement virtuel)
+## 🖥️ Optimisé pour serveurs Linux
+- **OS**: Ubuntu 20.04+ / Debian 10+
+- **Architecture**: x86_64 / aarch64
+- **Python**: 3.8+ (environnement virtuel recommandé)
 
 ## 📋 Description
 
@@ -13,7 +12,7 @@ SymGuard est un outil avancé de vérification et nettoyage des liens symbolique
 ### ✨ Fonctionnalités
 
 - **Scan en 2 phases** : basique + vérification ffprobe
-- **Traitement parallèle** optimisé pour 4 cœurs aarch64
+- **Traitement parallèle** optimisé pour serveurs multi-cœurs
 - **Gestion intelligente des serveurs média** (Sonarr, Radarr, Bazarr, Prowlarr)
 - **Modes sécurisés** : dry-run et réel avec confirmation
 - **Rapports détaillés** : JSON + logs de suppression
@@ -23,8 +22,8 @@ SymGuard est un outil avancé de vérification et nettoyage des liens symbolique
 
 ```bash
 # Cloner le projet
-git clone <repository> /home/kesurof/SymGuard
-cd /home/kesurof/SymGuard
+git clone https://github.com/kesurof/SymGuard.git
+cd SymGuard
 
 # Configuration automatique
 chmod +x setup.sh
@@ -37,10 +36,10 @@ Le script détecte automatiquement votre environnement :
 
 ```bash
 # Variables d'environnement utilisées
-USER=kesurof
-HOME=/home/kesurof
-SETTINGS_SOURCE=/home/kesurof/seedbox-compose
-VIRTUAL_ENV=/home/kesurof/seedbox-compose/venv
+USER=$USER
+HOME=$HOME
+SETTINGS_SOURCE=$HOME/seedbox-compose (ou configuré)
+VIRTUAL_ENV=$VIRTUAL_ENV (si disponible)
 ```
 
 ## 🎯 Utilisation
@@ -65,11 +64,11 @@ python3 script.py --real
 # Scan basique uniquement (rapide)
 python3 script.py --quick
 
-# Personnaliser les workers (défaut: 8 pour votre serveur)
+# Personnaliser les workers (détection automatique)
 python3 script.py -j 4
 
 # Répertoire personnalisé
-python3 script.py /home/kesurof/Medias/Films
+python3 script.py /path/to/your/media
 ```
 
 ## 📊 Fonctionnement
@@ -78,7 +77,7 @@ python3 script.py /home/kesurof/Medias/Films
 - Vérification existence des cibles
 - Test d'accès en lecture
 - Détection fichiers vides/corrompus
-- **Optimisé** : 8 workers parallèles
+- **Optimisé** : Workers parallèles (détection automatique)
 
 ### Phase 2 - Vérification ffprobe
 - Validation des fichiers média avec ffprobe
@@ -94,7 +93,7 @@ python3 script.py /home/kesurof/Medias/Films
 ## 📁 Structure des fichiers
 
 ```
-/home/kesurof/SymGuard/
+/path/to/SymGuard/
 ├── script.py              # Script principal
 ├── requirements.txt       # Dépendances Python
 ├── setup.sh              # Configuration automatique
@@ -118,16 +117,16 @@ sudo apt update && sudo apt install ffmpeg
 docker ps
 
 # Ajouter l'utilisateur au groupe docker (si nécessaire)
-sudo usermod -aG docker kesurof
+sudo usermod -aG docker $USER
 ```
 
 ### Permissions insuffisantes
 ```bash
 # Vérifier l'accès au répertoire média
-ls -la /home/kesurof/Medias
+ls -la /path/to/your/media
 
 # Corriger si nécessaire
-sudo chown -R kesurof:kesurof /home/kesurof/Medias
+sudo chown -R $USER:$USER /path/to/your/media
 ```
 
 ## 📊 Monitoring système
@@ -148,8 +147,8 @@ Le script surveille automatiquement :
 
 ## 📈 Performance
 
-Optimisations pour votre serveur :
-- **8 workers** parallèles (2x vos 4 cœurs)
+Optimisations pour serveurs multi-cœurs :
+- **Workers parallèles** (détection automatique des cœurs)
 - **Traitement par chunks** pour gros volumes
 - **Cache intelligent** des résultats
 - **Gestion mémoire** optimisée
@@ -164,9 +163,9 @@ Optimisations pour votre serveur :
 
 ### Chemins de configuration détectés
 ```
-/home/kesurof/seedbox-compose/docker/kesurof/[service]/config/config.xml
-/opt/seedbox/docker/kesurof/[service]/config/config.xml
-/home/kesurof/.config/[service]/config.xml
+$SETTINGS_SOURCE/docker/$USER/[service]/config/config.xml
+/opt/seedbox/docker/$USER/[service]/config/config.xml
+$HOME/.config/[service]/config.xml
 ```
 
 ## 📞 Support
@@ -181,6 +180,6 @@ En cas de problème :
 ## 🏷️ Version
 
 - **Script** : 2.0.0
-- **Optimisé pour** : ssd-83774 (aarch64)
-- **Python** : 3.10.12+
-- **OS** : Ubuntu 22.04.5 LTS
+- **Compatible** : Linux (x86_64/aarch64)
+- **Python** : 3.8+
+- **OS** : Ubuntu 20.04+ / Debian 10+

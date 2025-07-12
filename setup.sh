@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Configuration et installation de SymGuard pour serveur ssd-83774
-# Ubuntu 22.04.5 LTS - aarch64 - utilisateur kesurof
+# Configuration et installation de SymGuard pour serveurs Linux
+# Compatible Ubuntu 20.04+ / Debian 10+ - x86_64 / aarch64
 
 set -e  # Arrêt en cas d'erreur
 
@@ -12,11 +12,11 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-echo -e "${BLUE}🚀 Configuration SymGuard pour serveur ssd-83774${NC}"
+echo -e "${BLUE}🚀 Configuration SymGuard pour serveurs Linux${NC}"
 echo "=============================================="
 
 # Variables d'environnement détectées
-USER_NAME=${USER:-kesurof}
+USER_NAME=${USER:-$(whoami)}
 HOME_DIR=${HOME:-/home/$USER_NAME}
 SETTINGS_SOURCE=${SETTINGS_SOURCE:-$HOME_DIR/seedbox-compose}
 VIRTUAL_ENV_PATH=${VIRTUAL_ENV:-$SETTINGS_SOURCE/venv}
@@ -125,7 +125,7 @@ else
     echo -e "${RED}❌ Erreur lors du test${NC}"
 fi
 
-# Vérification des permissions sur /home/kesurof/Medias
+# Vérification des permissions sur le répertoire média par défaut
 MEDIA_DIR="$HOME_DIR/Medias"
 echo -e "\n${BLUE}📁 Vérification répertoire média...${NC}"
 

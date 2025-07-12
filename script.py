@@ -17,11 +17,11 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 # Détection automatique de l'utilisateur et environnement serveur
-current_user = os.environ.get('USER', os.environ.get('USERNAME', 'kesurof'))
+current_user = os.environ.get('USER', os.environ.get('USERNAME', 'user'))
 
-# Configuration adaptée au serveur (ssd-83774)
+# Configuration adaptée aux serveurs Linux
 SERVER_CONFIG = {
-    'max_workers': 8,  # Optimisé pour 4 cœurs aarch64
+    'max_workers': 8,  # Optimisé pour serveurs multi-cœurs
     'user': current_user,
     'home_dir': os.environ.get('HOME', f'/home/{current_user}'),
     'settings_source': os.environ.get('SETTINGS_SOURCE', f'/home/{current_user}/seedbox-compose'),
@@ -1015,11 +1015,11 @@ class AdvancedSymlinkChecker:
         return resources
 
 def main():
-    parser = argparse.ArgumentParser(description='Vérificateur avancé de liens symboliques - 2 phases (ssd-83774)')
+    parser = argparse.ArgumentParser(description='Vérificateur avancé de liens symboliques - 2 phases')
     parser.add_argument('path', nargs='?', default=f'{SERVER_CONFIG["home_dir"]}/Medias', 
                        help=f'Répertoire de base à scanner (défaut: {SERVER_CONFIG["home_dir"]}/Medias)')
     parser.add_argument('-j', '--jobs', type=int, default=SERVER_CONFIG['max_workers'], 
-                       help=f'Nombre de workers parallèles (défaut: {SERVER_CONFIG["max_workers"]} - optimisé pour aarch64)')
+                       help=f'Nombre de workers parallèles (défaut: {SERVER_CONFIG["max_workers"]} - détection automatique)')
     parser.add_argument('--dry-run', action='store_true', help='Force le mode dry-run')
     parser.add_argument('--real', action='store_true', help='Force le mode réel')
     parser.add_argument('--quick', action='store_true', help='Scan basique uniquement')
