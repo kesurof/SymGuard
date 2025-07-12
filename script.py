@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 
 # SymGuard - Vérificateur Avancé de Liens Symboliques
-# Version 2.0.1
+# Version 2.0.2
 # Optimisé pour serveurs Linux avec gestion des mises à jour
-# Dernière optimisation: Nettoyage du projet et suppression des fichiers dupliqués
+# Dernière optimisation: Stabilité et performance améliorées
 
 import os
 import subprocess
@@ -22,7 +22,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 # Version du script
-SCRIPT_VERSION = "2.0.1"
+SCRIPT_VERSION = "2.0.2"
 
 # Détection automatique de l'utilisateur et environnement serveur
 current_user = os.environ.get('USER', os.environ.get('USERNAME', 'user'))
@@ -40,14 +40,18 @@ SERVER_CONFIG = {
 # Configuration du logging avec rotation et gestion d'espace disque
 log_file = os.path.join(SERVER_CONFIG['home_dir'], 'symlink_maintenance.log')
 
-# Configuration du handler de fichier avec rotation
+# Configuration du handler de fichier avec rotation optimisée
 from logging.handlers import RotatingFileHandler
+import gc
+
+# Optimisation garbage collection pour gros volumes
+gc.set_threshold(700, 10, 10)  # Réduction du seuil pour libérer plus souvent
 
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
+    format='%(asctime)s - %(levelname)s - [%(funcName)s] %(message)s',  # Ajout du nom de fonction
     handlers=[
-        RotatingFileHandler(log_file, maxBytes=10*1024*1024, backupCount=3),  # 10MB max, 3 backups
+        RotatingFileHandler(log_file, maxBytes=5*1024*1024, backupCount=5),  # 5MB max, 5 backups (optimisé)
         logging.StreamHandler()
     ]
 )
@@ -86,12 +90,20 @@ class AdvancedSymlinkChecker:
         self.session = self._create_session()
         
     def _create_session(self) -> requests.Session:
-        """Crée une session HTTP avec retry automatique"""
+        """Crée une session HTTP avec retry automatique et configuration optimisée"""
         session = requests.Session()
-        retry_strategy = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
-        adapter = HTTPAdapter(max_retries=retry_strategy)
+        retry_strategy = Retry(
+            total=3, 
+            backoff_factor=1, 
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["GET", "POST"],  # Méthodes autorisées pour retry
+            raise_on_status=False  # Évite les exceptions sur retry
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy, pool_connections=10, pool_maxsize=20)
         session.mount("http://", adapter)
         session.mount("https://", adapter)
+        # Timeout par défaut pour éviter les blocages
+        session.timeout = 30
         return session
     
     def rotate_old_files(self, pattern: str, max_files: int = 3):
@@ -118,7 +130,7 @@ class AdvancedSymlinkChecker:
             logger.error(f"Erreur rotation fichiers {pattern}: {e}")
     
     def cleanup_old_logs(self):
-        """Nettoie les anciens logs et rapports"""
+        """Nettoie les anciens logs et rapports avec optimisation mémoire"""
         print("🧹 Nettoyage des anciens fichiers...")
         
         # Rotation des rapports JSON (garder 3)
@@ -129,6 +141,10 @@ class AdvancedSymlinkChecker:
         
         # Rotation des logs principaux (garder 3)
         self.rotate_old_files("symlink_maintenance*.log", 3)
+        
+        # Forcer le garbage collection après nettoyage
+        gc.collect()
+        logger.info("Nettoyage terminé avec libération mémoire")
     
     def choose_execution_mode(self) -> str:
         """Choix du mode d'exécution"""
@@ -1381,11 +1397,22 @@ def main():
         else:
             mode = checker.choose_execution_mode()
         
-        # 2. Sélection interactive des répertoires
+        # 2. Vérification interactive des répertoires
         selected_paths = checker.interactive_directory_selection(args.path)
         if not selected_paths:
             print("❌ Aucun répertoire sélectionné, arrêt")
             return 1
+        
+        # 2. Vérification préalable des permissions
+        print("\n🔐 Vérification des permissions...")
+        for path in [args.path]:
+            if not os.access(path, os.R_OK):
+                print(f"❌ Pas d'accès en lecture: {path}")
+                return 1
+            if mode == 'real' and not os.access(path, os.W_OK):
+                print(f"❌ Pas d'accès en écriture (requis pour mode réel): {path}")
+                return 1
+        print("✅ Permissions vérifiées")
         
         # 3. Vérification ffprobe et choix de profondeur
         if args.quick:

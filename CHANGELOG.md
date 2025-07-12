@@ -5,6 +5,28 @@ Toutes les modifications notables de SymGuard seront documentées dans ce fichie
 Le format est basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.0.0/),
 et ce projet adhère au [Versionnage Sémantique](https://semver.org/lang/fr/).
 
+## [2.0.2] - 2025-01-13
+
+### ✨ Ajouté
+- **Stabilité renforcée** : Amélioration de la gestion des exceptions et erreurs
+- **Performance optimisée** : Traitement parallèle plus efficace des gros volumes
+- **Logging amélioré** : Rotation automatique des logs avec limitation d'espace disque
+
+### 🔧 Amélioré
+- **Gestion mémoire** : Optimisation pour les serveurs avec ressources limitées
+- **Interface utilisateur** : Messages plus clairs et informatifs
+- **Robustesse du code** : Gestion d'erreurs plus complète
+
+### 🐛 Corrigé
+- **Fuites mémoire** : Optimisation du garbage collection pour les gros scans
+- **Timeout réseau** : Gestion améliorée des timeouts serveurs média
+- **Permissions fichiers** : Vérification préalable des droits d'accès
+
+### 🧹 Nettoyage
+- **Code simplifié** : Suppression du code de migration et désinstallation
+- **Structure allégée** : Focus sur les fonctionnalités principales
+- **Documentation mise à jour** : Instructions d'installation et utilisation
+
 ## [2.0.1] - 2025-01-13
 
 ### ✨ Ajouté
