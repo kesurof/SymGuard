@@ -1159,7 +1159,162 @@ class AdvancedSymlinkChecker:
                 
         except Exception as e:
             print(f"❌ Erreur lors de la mise à jour: {e}")
+    
+    def create_default_config(self):
+        """Crée un fichier de configuration par défaut"""
+        config_file = os.path.join(self.home_dir, '.symguard_config.json')
+        example_file = os.path.join(os.path.dirname(__file__), '.symguard_config.json.example')
+        
+        if os.path.exists(config_file):
+            return False  # Fichier déjà existant
+        
+        print(f"\n📝 Création du fichier de configuration...")
+        print(f"📁 Emplacement: {config_file}")
+        
+        default_config = {
+            "sonarr": {
+                "url": "http://localhost:8989",
+                "api_key": "",
+                "enabled": True
+            },
+            "radarr": {
+                "url": "http://localhost:7878",
+                "api_key": "",
+                "enabled": True
+            },
+            "bazarr": {
+                "url": "http://localhost:6767",
+                "api_key": "",
+                "enabled": True
+            },
+            "prowlarr": {
+                "url": "http://localhost:9696",
+                "api_key": "",
+                "enabled": True
+            }
+        }
+        
+        try:
+            with open(config_file, 'w') as f:
+                json.dump(default_config, f, indent=2)
+            
+            print(f"✅ Fichier créé avec succès!")
+            print(f"💡 Éditez-le pour ajouter vos clés API:")
+            print(f"   nano {config_file}")
+            
+            if os.path.exists(example_file):
+                print(f"📖 Consultez l'exemple: {example_file}")
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ Erreur création fichier: {e}")
+            return False
 
+    def interactive_config_setup(self):
+        """Configuration interactive des serveurs média"""
+        config_file = os.path.join(self.home_dir, '.symguard_config.json')
+        
+        print(f"\n⚙️ CONFIGURATION INTERACTIVE")
+        print("="*50)
+        
+        if os.path.exists(config_file):
+            print(f"📁 Configuration existante trouvée: {config_file}")
+            try:
+                response = input("Voulez-vous la reconfigurer ? (y/N): ").strip().lower()
+                if response not in ['y', 'yes', 'o', 'oui']:
+                    return False
+            except KeyboardInterrupt:
+                print("\n⏭️ Configuration ignorée")
+                return False
+        
+        # Charger la config existante ou créer une nouvelle
+        try:
+            if os.path.exists(config_file):
+                with open(config_file, 'r') as f:
+                    config = json.load(f)
+            else:
+                config = self.load_media_config()
+        except:
+            config = self.load_media_config()
+        
+        services = ['sonarr', 'radarr', 'bazarr', 'prowlarr']
+        default_ports = {'sonarr': 8989, 'radarr': 7878, 'bazarr': 6767, 'prowlarr': 9696}
+        
+        print(f"\nConfiguration des services média:")
+        print(f"💡 Laissez vide pour conserver la valeur actuelle")
+        print(f"💡 Utilisez 'disable' pour désactiver un service")
+        
+        for service in services:
+            print(f"\n--- {service.upper()} ---")
+            service_config = config.get(service, {})
+            current_url = service_config.get('url', f'http://localhost:{default_ports[service]}')
+            current_enabled = service_config.get('enabled', True)
+            
+            try:
+                # URL
+                new_url = input(f"URL [{current_url}]: ").strip()
+                if new_url:
+                    service_config['url'] = new_url
+                else:
+                    service_config['url'] = current_url
+                
+                # Activation/désactivation
+                if current_enabled:
+                    enable = input(f"Activer ce service ? [Y/n]: ").strip().lower()
+                    service_config['enabled'] = enable not in ['n', 'no', 'non', 'disable']
+                else:
+                    enable = input(f"Activer ce service ? [y/N]: ").strip().lower()
+                    service_config['enabled'] = enable in ['y', 'yes', 'o', 'oui']
+                
+                # Clé API si activé
+                if service_config['enabled']:
+                    current_key = service_config.get('api_key', '')
+                    key_display = f"[{current_key[:8]}...]" if current_key else "[non configurée]"
+                    new_key = input(f"Clé API {key_display}: ").strip()
+                    if new_key:
+                        service_config['api_key'] = new_key
+                    elif not current_key:
+                        # Essayer de détecter automatiquement
+                        detected_key = self._detect_api_key(service, service_config['url'])
+                        if detected_key:
+                            print(f"✅ Clé API détectée automatiquement")
+                            service_config['api_key'] = detected_key
+                        else:
+                            print(f"⚠️ Aucune clé API détectée automatiquement")
+                            service_config['api_key'] = ""
+                else:
+                    service_config['api_key'] = ""
+                
+                config[service] = service_config
+                
+            except KeyboardInterrupt:
+                print(f"\n⏭️ Configuration de {service} ignorée")
+                continue
+        
+        # Sauvegarder
+        try:
+            with open(config_file, 'w') as f:
+                json.dump(config, f, indent=2)
+            
+            print(f"\n✅ Configuration sauvegardée dans {config_file}")
+            
+            # Afficher un résumé
+            print(f"\n📊 Résumé de la configuration:")
+            for service, service_config in config.items():
+                if service_config.get('enabled', False):
+                    has_key = "✅" if service_config.get('api_key') else "⚠️"
+                    print(f"  {service}: {service_config['url']} {has_key}")
+                else:
+                    print(f"  {service}: désactivé")
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ Erreur sauvegarde: {e}")
+            return False
+
+    # ...existing code...
 def main():
     parser = argparse.ArgumentParser(description='Vérificateur avancé de liens symboliques - 2 phases')
     parser.add_argument('path', nargs='?', default=f'{SERVER_CONFIG["home_dir"]}/Medias', 
@@ -1170,9 +1325,23 @@ def main():
     parser.add_argument('--real', action='store_true', help='Force le mode réel')
     parser.add_argument('--quick', action='store_true', help='Scan basique uniquement')
     parser.add_argument('--no-update-check', action='store_true', help='Ignorer la vérification de mise à jour')
+    parser.add_argument('--config', action='store_true', help='Configuration interactive des serveurs média')
+    parser.add_argument('--create-config', action='store_true', help='Créer un fichier de configuration par défaut')
     parser.add_argument('--version', action='version', version=f'SymGuard v{SCRIPT_VERSION}')
     
     args = parser.parse_args()
+    
+    # Gestion des commandes spéciales
+    checker = AdvancedSymlinkChecker(max_workers=args.jobs)
+    
+    if args.create_config:
+        if checker.create_default_config():
+            print("\n💡 Éditez maintenant le fichier pour ajouter vos clés API")
+        return 0
+    
+    if args.config:
+        checker.interactive_config_setup()
+        return 0
     
     print("🚀 Vérificateur avancé de liens symboliques - 2 phases")
     print(f"🖥️ Serveur: {os.uname().nodename} ({os.uname().machine})")
@@ -1191,8 +1360,6 @@ def main():
         return 1
     
     try:
-        checker = AdvancedSymlinkChecker(max_workers=args.jobs)
-        
         # Vérification des mises à jour (sauf si --no-update-check)
         if not args.no_update_check:
             if checker.check_for_updates():
