@@ -10,9 +10,7 @@ et ce projet adhère au [Versionnage Sémantique](https://semver.org/lang/fr/).
 ### ✨ Ajouté
 - **Configuration interactive** : Commande `--config` pour configurer les serveurs média étape par étape
 - **Création automatique de config** : Commande `--create-config` pour générer le fichier de configuration
-- **Scripts d'installation** :
-  - `install.sh` : Installation complète automatisée (Ubuntu/Debian/CentOS/RHEL)
-  - `update.sh` : Mise à jour simplifiée depuis GitHub
+- **Script d'installation** : `install.sh` pour installation automatisée (Ubuntu/Debian/CentOS/RHEL)
 - **Auto-détection améliorée** : Détection automatique des clés API depuis les fichiers Docker
 - **Gestion d'erreurs GitHub API** : Meilleure gestion des cas 404 et timeouts
 
