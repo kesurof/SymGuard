@@ -586,10 +586,10 @@ class AdvancedSymlinkChecker:
         
         return corrupted_files
     
-    def confirm_deletion(self, all_problems: List[Dict]) -> bool:
-        """Confirmation globale avant suppression"""
+    def confirm_deletion(self, all_problems: List[Dict]) -> Tuple[bool, str]:
+        """Confirmation globale avant suppression avec choix du mode de scan"""
         if not all_problems:
-            return False
+            return False, 'mass'
         
         print(f"\n⚠️  MODE RÉEL - {len(all_problems):,} fichiers problématiques détectés")
         print("\nFICHIERS À SUPPRIMER:")
@@ -613,10 +613,36 @@ class AdvancedSymlinkChecker:
         print(f"\nConfirmer la suppression de ces {len(all_problems):,} fichiers ? (y/N): ", end="")
         try:
             response = input().strip().lower()
-            return response in ['y', 'yes', 'o', 'oui']
+            if response not in ['y', 'yes', 'o', 'oui']:
+                print("\n❌ Suppression annulée")
+                return False, 'mass'
         except KeyboardInterrupt:
             print("\n❌ Suppression annulée")
-            return False
+            return False, 'mass'
+        
+        # Choix du mode de scan des serveurs média
+        print(f"\n🔄 MODE DE SCAN DES SERVEURS MÉDIA:")
+        print("1) Scan en masse (rapide) - Lance un scan global")
+        print("2) Scan individuel (lent) - Notifie chaque fichier supprimé")
+        print("3) Pas de scan - Ignorer les serveurs média")
+        
+        while True:
+            try:
+                choice = input(f"\n👉 Votre choix (1-3): ").strip()
+                if choice == '1':
+                    print("✅ Mode scan en masse sélectionné")
+                    return True, 'mass'
+                elif choice == '2':
+                    print("✅ Mode scan individuel sélectionné (plus lent)")
+                    return True, 'individual'
+                elif choice == '3':
+                    print("✅ Scan des serveurs média désactivé")
+                    return True, 'none'
+                else:
+                    print("❌ Choix invalide. Utilisez 1, 2 ou 3")
+            except KeyboardInterrupt:
+                print("\n❌ Suppression annulée")
+                return False, 'mass'
     
     def delete_files(self, problem_files: List[Dict]) -> List[str]:
         """Supprime les fichiers problématiques et log les suppressions (version robuste)"""
@@ -750,7 +776,7 @@ class AdvancedSymlinkChecker:
         except Exception as e:
             logger.error(f"Erreur sauvegarde config: {e}")
     
-    def get_service_url_and_key(self, service: str) -> Tuple[Optional[str], Optional[str]]:
+    def get_service_url_and_key(self, service: str) -> Tuple<Optional[str], Optional[str]]:
         """Récupère l'URL et la clé API d'un service"""
         # Charger la configuration
         media_config = self.load_media_config()
@@ -1359,7 +1385,212 @@ class AdvancedSymlinkChecker:
             print(f"❌ Erreur sauvegarde: {e}")
             return False
 
-    # ...existing code...
+    def parse_media_file_info(self, file_path: str) -> Dict[str, any]:
+        """Analyse un chemin de fichier pour extraire les informations série/film"""
+        path_parts = Path(file_path).parts
+        
+        # Recherche de patterns dans le chemin
+        info = {
+            'type': 'unknown',
+            'series_name': None,
+            'season': None,
+            'episode': None,
+            'movie_name': None,
+            'year': None
+        }
+        
+        path_str = str(file_path).lower()
+        
+        # Détection série (patterns courants)
+        import re
+        
+        # Pattern série avec saison/épisode
+        series_pattern = r'(.*?)[\s\.]s(\d{2})e(\d{2})'
+        series_match = re.search(series_pattern, path_str)
+        
+        if series_match:
+            info['type'] = 'series'
+            info['series_name'] = series_match.group(1).replace('.', ' ').replace('_', ' ').strip()
+            info['season'] = int(series_match.group(2))
+            info['episode'] = int(series_match.group(3))
+        else:
+            # Pattern film avec année
+            movie_pattern = r'(.*?)[\s\.](\d{4})[\s\.]'
+            movie_match = re.search(movie_pattern, path_str)
+            
+            if movie_match:
+                info['type'] = 'movie'
+                info['movie_name'] = movie_match.group(1).replace('.', ' ').replace('_', ' ').strip()
+                info['year'] = int(movie_match.group(2))
+            else:
+                # Essayer de détecter depuis le répertoire parent
+                if 'movies' in path_str or 'films' in path_str:
+                    info['type'] = 'movie'
+                    # Prendre le nom du fichier sans extension
+                    info['movie_name'] = Path(file_path).stem
+                elif 'series' in path_str or 'tv' in path_str or 'shows' in path_str:
+                    info['type'] = 'series'
+                    # Chercher dans les parties du chemin
+                    for part in path_parts:
+                        if 'season' in part.lower() or 's0' in part.lower():
+                            info['series_name'] = path_parts[path_parts.index(part) - 1] if path_parts.index(part) > 0 else None
+                            break
+        
+        return info
+
+    def notify_media_servers_individual(self, deleted_files: List[Dict]) -> Dict[str, int]:
+        """Notifie individuellement les serveurs média pour chaque fichier supprimé"""
+        print(f"\n🔄 Notification individuelle des serveurs média...")
+        print(f"📊 {len(deleted_files):,} fichiers à traiter")
+        
+        results = {
+            'sonarr_series_refreshed': 0,
+            'radarr_movies_refreshed': 0,
+            'total_notifications': 0,
+            'errors': 0
+        }
+        
+        # Grouper les fichiers par type et nom
+        series_to_refresh = set()
+        movies_to_refresh = set()
+        
+        print("🔍 Analyse des fichiers supprimés...")
+        for deleted_file in deleted_files:
+            file_path = deleted_file['path']
+            media_info = self.parse_media_file_info(file_path)
+            
+            if media_info['type'] == 'series' and media_info['series_name']:
+                series_to_refresh.add(media_info['series_name'])
+            elif media_info['type'] == 'movie' and media_info['movie_name']:
+                movies_to_refresh.add(media_info['movie_name'])
+        
+        print(f"📺 {len(series_to_refresh)} séries à rafraîchir")
+        print(f"🎬 {len(movies_to_refresh)} films à rafraîchir")
+        
+        # Notifier Sonarr pour les séries
+        if series_to_refresh:
+            results['sonarr_series_refreshed'] = self._refresh_sonarr_series(series_to_refresh)
+        
+        # Notifier Radarr pour les films
+        if movies_to_refresh:
+            results['radarr_movies_refreshed'] = self._refresh_radarr_movies(movies_to_refresh)
+        
+        results['total_notifications'] = results['sonarr_series_refreshed'] + results['radarr_movies_refreshed']
+        
+        print(f"\n📊 Résumé notifications individuelles:")
+        print(f"✅ Séries rafraîchies: {results['sonarr_series_refreshed']}")
+        print(f"✅ Films rafraîchis: {results['radarr_movies_refreshed']}")
+        print(f"📈 Total: {results['total_notifications']} notifications")
+        
+        return results
+
+    def _refresh_sonarr_series(self, series_names: set) -> int:
+        """Rafraîchit individuellement les séries dans Sonarr"""
+        try:
+            # Vérifier si requests est disponible
+            try:
+                import requests
+            except ImportError:
+                print("⚠️ Module 'requests' non disponible pour Sonarr")
+                return 0
+            
+            url, api_key = self.get_service_url_and_key('sonarr')
+            if not url or not api_key:
+                print("⚠️ Sonarr non configuré")
+                return 0
+            
+            headers = {"Content-Type": "application/json", "X-Api-Key": api_key}
+            refreshed = 0
+            
+            # Récupérer la liste des séries Sonarr
+            try:
+                response = self.session.get(f"{url}/api/v3/series", headers=headers, timeout=10)
+                if response.status_code != 200:
+                    print(f"⚠️ Impossible de récupérer la liste Sonarr")
+                    return 0
+                
+                sonarr_series = response.json()
+                
+                for series_name in series_names:
+                    # Chercher la série dans Sonarr
+                    for series in sonarr_series:
+                        if series_name.lower() in series['title'].lower():
+                            # Rafraîchir cette série
+                            refresh_data = {"name": "RefreshSeries", "seriesId": series['id']}
+                            refresh_response = self.session.post(f"{url}/api/v3/command", 
+                                                               json=refresh_data, 
+                                                               headers=headers, 
+                                                               timeout=10)
+                            if refresh_response.status_code in [200, 201]:
+                                print(f"✅ Sonarr: {series['title']} rafraîchi")
+                                refreshed += 1
+                            else:
+                                print(f"⚠️ Sonarr: Erreur rafraîchissement {series['title']}")
+                            break
+                    else:
+                        print(f"⚠️ Série non trouvée dans Sonarr: {series_name}")
+                
+            except Exception as e:
+                print(f"❌ Erreur communication Sonarr: {e}")
+                
+        except Exception as e:
+            print(f"❌ Erreur générale Sonarr: {e}")
+        
+        return refreshed
+
+    def _refresh_radarr_movies(self, movie_names: set) -> int:
+        """Rafraîchit individuellement les films dans Radarr"""
+        try:
+            # Vérifier si requests est disponible
+            try:
+                import requests
+            except ImportError:
+                print("⚠️ Module 'requests' non disponible pour Radarr")
+                return 0
+            
+            url, api_key = self.get_service_url_and_key('radarr')
+            if not url or not api_key:
+                print("⚠️ Radarr non configuré")
+                return 0
+            
+            headers = {"Content-Type": "application/json", "X-Api-Key": api_key}
+            refreshed = 0
+            
+            # Récupérer la liste des films Radarr
+            try:
+                response = self.session.get(f"{url}/api/v3/movie", headers=headers, timeout=10)
+                if response.status_code != 200:
+                    print(f"⚠️ Impossible de récupérer la liste Radarr")
+                    return 0
+                
+                radarr_movies = response.json()
+                
+                for movie_name in movie_names:
+                    # Chercher le film dans Radarr
+                    for movie in radarr_movies:
+                        if movie_name.lower() in movie['title'].lower():
+                            # Rafraîchir ce film
+                            refresh_data = {"name": "RefreshMovie", "movieId": movie['id']}
+                            refresh_response = self.session.post(f"{url}/api/v3/command", 
+                                                               json=refresh_data, 
+                                                               headers=headers, 
+                                                               timeout=10)
+                            if refresh_response.status_code in [200, 201]:
+                                print(f"✅ Radarr: {movie['title']} rafraîchi")
+                                refreshed += 1
+                            else:
+                                print(f"⚠️ Radarr: Erreur rafraîchissement {movie['title']}")
+                            break
+                    else:
+                        print(f"⚠️ Film non trouvé dans Radarr: {movie_name}")
+                
+            except Exception as e:
+                print(f"❌ Erreur communication Radarr: {e}")
+                
+        except Exception as e:
+            print(f"❌ Erreur générale Radarr: {e}")
+        
+        return refreshed
 def main():
     parser = argparse.ArgumentParser(description='Vérificateur avancé de liens symboliques - 2 phases')
     parser.add_argument('path', nargs='?', default=f'{SERVER_CONFIG["home_dir"]}/Medias', 
@@ -1471,10 +1702,22 @@ def main():
         
         # 8. Traitement selon le mode
         if mode == 'real' and all_problems:
-            if checker.confirm_deletion(all_problems):
+            confirmed, scan_mode = checker.confirm_deletion(all_problems)
+            if confirmed:
                 deleted_files = checker.delete_files(all_problems)
                 checker.deleted_files = deleted_files
                 checker.save_deletion_log(deleted_files)
+                
+                # Notification des serveurs média selon le mode choisi
+                if scan_mode and not args.no_media_scan and any([checker.config.get('sonarr'), checker.config.get('radarr')]):
+                    if scan_mode == 'individual':
+                        print("\n🎯 Mode individuel sélectionné - Notification précise par fichier")
+                        checker.notify_media_servers_individual(deleted_files)
+                    elif scan_mode == 'mass':
+                        print("\n⚡ Mode en masse sélectionné - Scan complet rapide")
+                        checker.notify_media_servers(deleted_files)
+                elif scan_mode == 'none':
+                    print("\n⏭️ Notification des serveurs média désactivée pour cette session")
             else:
                 print("❌ Suppression annulée")
                 mode = 'dry-run'  # Traiter comme un dry-run
@@ -1482,10 +1725,10 @@ def main():
         # 9. Sauvegarde des rapports
         checker.save_full_report(all_problems, mode)
         
-        # 10. Scan des serveurs média (optionnel)
-        if not args.no_media_scan:
+        # 10. Scan des serveurs média (optionnel) - seulement si pas déjà fait
+        if not args.no_media_scan and mode == 'dry-run':
             checker.trigger_media_scans()
-        else:
+        elif args.no_media_scan:
             print("\n⏭️ Scans des serveurs média ignorés (--no-media-scan)")
         
         # 11. Résumé final
