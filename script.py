@@ -776,8 +776,11 @@ class AdvancedSymlinkChecker:
         except Exception as e:
             logger.error(f"Erreur sauvegarde config: {e}")
     
-    def get_service_url_and_key(self, service: str) -> Tuple<Optional[str], Optional[str]]:
-        """Récupère l'URL et la clé API d'un service"""
+    def get_service_url_and_key(self, service: str):
+        """Récupère l'URL et la clé API d'un service
+        Returns:
+            Tuple[Optional[str], Optional[str]]: URL et clé API du service
+        """
         # Charger la configuration
         media_config = self.load_media_config()
         service_config = media_config.get(service, {})
