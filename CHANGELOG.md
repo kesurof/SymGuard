@@ -8,24 +8,30 @@ et ce projet adhère au [Versionnage Sémantique](https://semver.org/lang/fr/).
 ## [2.0.2] - 2025-01-13
 
 ### ✨ Ajouté
-- **Stabilité renforcée** : Amélioration de la gestion des exceptions et erreurs
-- **Performance optimisée** : Traitement parallèle plus efficace des gros volumes
-- **Logging amélioré** : Rotation automatique des logs avec limitation d'espace disque
+- **Option --no-media-scan** : Permet d'ignorer les scans des serveurs média
+- **Script install-deps.sh** : Installation simplifiée des dépendances Python
+- **Gestion des imports optionnels** : Le script fonctionne même si certains modules manquent
+- **Configuration d'exemple améliorée** : Fichier .symguard_config.json.example détaillé
+- **Documentation dépannage** : Section complète dans le README
 
 ### 🔧 Amélioré
-- **Gestion mémoire** : Optimisation pour les serveurs avec ressources limitées
-- **Interface utilisateur** : Messages plus clairs et informatifs
-- **Robustesse du code** : Gestion d'erreurs plus complète
+- **Gestion des erreurs** : Imports optionnels pour psutil et requests
+- **Robustesse du code** : Meilleure gestion des cas où les dépendances manquent
+- **Messages informatifs** : Instructions claires quand les API keys sont manquantes
+- **Performance optimisée** : Garbage collection amélioré et timeouts configurables
+- **Configuration HTTP** : Pool de connexions et retry automatique
 
 ### 🐛 Corrigé
-- **Fuites mémoire** : Optimisation du garbage collection pour les gros scans
-- **Timeout réseau** : Gestion améliorée des timeouts serveurs média
-- **Permissions fichiers** : Vérification préalable des droits d'accès
+- **Imports manquants** : Ajout de gc et re dans les imports
+- **Code incomplet** : Finalisation de toutes les fonctions
+- **Gestion psutil** : Fonctionnement en fallback si psutil absent
+- **Erreurs API keys** : Option pour ignorer les scans média
+- **Permissions** : Vérification préalable des droits d'accès
 
 ### 🧹 Nettoyage
 - **Code simplifié** : Suppression du code de migration et désinstallation
 - **Structure allégée** : Focus sur les fonctionnalités principales
-- **Documentation mise à jour** : Instructions d'installation et utilisation
+- **Documentation mise à jour** : Instructions d'installation et utilisation claires
 
 ## [2.0.1] - 2025-01-13
 

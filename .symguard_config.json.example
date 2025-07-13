@@ -1,22 +1,41 @@
 {
+  "_comment": "Configuration SymGuard - Serveurs média",
+  "_version": "2.0.2",
+  "_description": "Configurez vos serveurs média pour les scans automatiques",
+  
   "sonarr": {
     "url": "http://localhost:8989",
-    "api_key": "your_sonarr_api_key_here",
-    "enabled": true
+    "api_key": "",
+    "enabled": true,
+    "_help": "Trouvez la clé API dans Sonarr > Settings > General > Security > API Key"
   },
+  
   "radarr": {
     "url": "http://localhost:7878",
-    "api_key": "your_radarr_api_key_here",
-    "enabled": true
+    "api_key": "",
+    "enabled": true,
+    "_help": "Trouvez la clé API dans Radarr > Settings > General > Security > API Key"
   },
+  
   "bazarr": {
     "url": "http://localhost:6767",
-    "api_key": "your_bazarr_api_key_here",
-    "enabled": true
+    "api_key": "",
+    "enabled": true,
+    "_help": "Trouvez la clé API dans Bazarr > Settings > General > Security > API Key"
   },
+  
   "prowlarr": {
     "url": "http://localhost:9696",
-    "api_key": "your_prowlarr_api_key_here",
-    "enabled": true
+    "api_key": "",
+    "enabled": true,
+    "_help": "Trouvez la clé API dans Prowlarr > Settings > General > Security > API Key"
+  },
+  
+  "_instructions": {
+    "1": "Copiez ce fichier vers ~/.symguard_config.json",
+    "2": "Modifiez les URLs si nécessaire", 
+    "3": "Ajoutez vos clés API dans les champs api_key",
+    "4": "Désactivez les services non utilisés avec enabled: false",
+    "5": "Utilisez 'python3 script.py --config' pour configuration interactive"
   }
 }

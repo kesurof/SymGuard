@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 
 # SymGuard - Vérificateur Avancé de Liens Symboliques
-# Version 2.0.2
+# Version 2.0.3
 # Optimisé pour serveurs Linux avec gestion des mises à jour
-# Dernière optimisation: Stabilité et performance améliorées
+# Dernière optimisation: Corrections majeures et robustesse améliorée
 
 import os
 import subprocess
@@ -13,6 +13,8 @@ import logging
 import argparse
 import shutil
 import glob
+import gc
+import re
 from datetime import datetime
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -22,7 +24,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 # Version du script
-SCRIPT_VERSION = "2.0.2"
+SCRIPT_VERSION = "2.0.3"
 
 # Détection automatique de l'utilisateur et environnement serveur
 current_user = os.environ.get('USER', os.environ.get('USERNAME', 'user'))
@@ -810,8 +812,22 @@ class AdvancedSymlinkChecker:
     def trigger_media_scans(self):
         """Déclenche les scans Sonarr/Radarr/Bazarr/Prowlarr avec configuration améliorée"""
         print(f"\n🔄 Déclenchement des scans serveurs média...")
+        print(f"💡 Utilisez --no-media-scan pour ignorer cette étape")
         
         scan_results = {}
+        
+        # Vérifier d'abord si au moins un service a une config valide
+        has_valid_config = False
+        for service in ['sonarr', 'radarr', 'bazarr', 'prowlarr']:
+            url, api_key = self.get_service_url_and_key(service)
+            if url and api_key:
+                has_valid_config = True
+                break
+        
+        if not has_valid_config:
+            print("⚠️ Aucune configuration valide trouvée pour les serveurs média")
+            print("💡 Utilisez --config pour configurer ou --create-config pour créer le fichier")
+            return {}
         
         # Services disponibles avec leurs commandes
         services_commands = {
@@ -1009,29 +1025,37 @@ class AdvancedSymlinkChecker:
         }
         
         try:
-            # Vérification mémoire
-            import psutil
-            memory = psutil.virtual_memory()
-            resources['memory'] = {
-                'available': memory.available > 1024**3,  # > 1GB disponible
-                'usage': memory.percent,
-                'available_gb': memory.available / (1024**3)
-            }
-            
-            # Vérification espace disque
-            disk = psutil.disk_usage(self.home_dir)
-            resources['disk'] = {
-                'available': disk.free > 5 * 1024**3,  # > 5GB libre
-                'usage': (disk.used / disk.total) * 100,
-                'free_gb': disk.free / (1024**3)
-            }
+            # Vérification mémoire (optionnel)
+            try:
+                import psutil
+                memory = psutil.virtual_memory()
+                resources['memory'] = {
+                    'available': memory.available > 1024**3,  # > 1GB disponible
+                    'usage': memory.percent,
+                    'available_gb': memory.available / (1024**3)
+                }
+                
+                # Vérification espace disque
+                disk = psutil.disk_usage(self.home_dir)
+                resources['disk'] = {
+                    'available': disk.free > 5 * 1024**3,  # > 5GB libre
+                    'usage': (disk.used / disk.total) * 100,
+                    'free_gb': disk.free / (1024**3)
+                }
+            except ImportError:
+                logger.debug("psutil non disponible - monitoring système limité")
+                resources['memory'] = {'available': True, 'usage': 0, 'available_gb': 'unknown'}
+                resources['disk'] = {'available': True, 'usage': 0, 'free_gb': 'unknown'}
             
             # Charge système
-            load_avg = os.getloadavg()[0]  # 1 minute
-            resources['load'] = {
-                'average': load_avg,
-                'acceptable': load_avg < 2.0  # Acceptable pour 4 cœurs
-            }
+            try:
+                load_avg = os.getloadavg()[0]  # 1 minute
+                resources['load'] = {
+                    'average': load_avg,
+                    'acceptable': load_avg < 2.0  # Acceptable pour 4 cœurs
+                }
+            except (OSError, AttributeError):
+                resources['load'] = {'average': 0, 'acceptable': True}
             
         except ImportError:
             # Fallback si psutil non disponible
@@ -1114,9 +1138,13 @@ class AdvancedSymlinkChecker:
     def check_for_updates(self):
         """Vérifie s'il y a des mises à jour disponibles sur GitHub"""
         try:
-            import subprocess
-            import json
-            import requests
+            # Vérifier si requests est disponible
+            try:
+                import requests
+            except ImportError:
+                print("⚠️ Module 'requests' non disponible - vérification des mises à jour ignorée")
+                print("💡 Installez-le avec: pip3 install --user requests")
+                return False
             
             # Version actuelle
             current_version = SCRIPT_VERSION
@@ -1274,6 +1302,7 @@ class AdvancedSymlinkChecker:
                     service_config['url'] = new_url
                 else:
                     service_config['url'] = current_url
+                    service_config['url'] = current_url
                 
                 # Activation/désactivation
                 if current_enabled:
@@ -1341,6 +1370,7 @@ def main():
     parser.add_argument('--real', action='store_true', help='Force le mode réel')
     parser.add_argument('--quick', action='store_true', help='Scan basique uniquement')
     parser.add_argument('--no-update-check', action='store_true', help='Ignorer la vérification de mise à jour')
+    parser.add_argument('--no-media-scan', action='store_true', help='Ignorer les scans des serveurs média')
     parser.add_argument('--config', action='store_true', help='Configuration interactive des serveurs média')
     parser.add_argument('--create-config', action='store_true', help='Créer un fichier de configuration par défaut')
     parser.add_argument('--version', action='version', version=f'SymGuard v{SCRIPT_VERSION}')
@@ -1452,8 +1482,11 @@ def main():
         # 9. Sauvegarde des rapports
         checker.save_full_report(all_problems, mode)
         
-        # 10. Scan des serveurs média
-        checker.trigger_media_scans()
+        # 10. Scan des serveurs média (optionnel)
+        if not args.no_media_scan:
+            checker.trigger_media_scans()
+        else:
+            print("\n⏭️ Scans des serveurs média ignorés (--no-media-scan)")
         
         # 11. Résumé final
         elapsed = time.time() - start_time

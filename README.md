@@ -20,12 +20,26 @@ SymGuard est un outil avancé de vérification et nettoyage des liens symbolique
 
 ## 🚀 Installation
 
+### Option 1 : Installation des dépendances seulement
 ```bash
 # Cloner le projet
 git clone https://github.com/kesurof/SymGuard.git
 cd SymGuard
 
-# Configuration automatique
+# Installer les dépendances
+./install-deps.sh
+
+# Utilisation
+python3 script.py --help
+```
+
+### Option 2 : Installation complète (si disponible)
+```bash
+# Cloner le projet
+git clone https://github.com/kesurof/SymGuard.git
+cd SymGuard
+
+# Configuration automatique complète
 chmod +x setup.sh
 ./setup.sh
 ```
@@ -64,11 +78,26 @@ python3 script.py --real
 # Scan basique uniquement (rapide)
 python3 script.py --quick
 
+# Ignorer les scans des serveurs média
+python3 script.py --no-media-scan
+
+# Ignorer la vérification de mise à jour
+python3 script.py --no-update-check
+
 # Personnaliser les workers (détection automatique)
 python3 script.py -j 4
 
 # Répertoire personnalisé
 python3 script.py /path/to/your/media
+```
+
+### Configuration des serveurs média
+```bash
+# Configuration interactive
+python3 script.py --config
+
+# Créer un fichier de configuration par défaut
+python3 script.py --create-config
 ```
 
 ## 📊 Fonctionnement
@@ -129,6 +158,52 @@ ls -la /path/to/your/media
 sudo chown -R $USER:$USER /path/to/your/media
 ```
 
+## 🔧 Dépannage
+
+### Erreurs courantes
+
+#### "API key manquante" pour serveurs média
+```bash
+# Solution 1 : Ignorer les scans média
+python3 script.py --no-media-scan
+
+# Solution 2 : Configurer les clés API
+python3 script.py --config
+
+# Solution 3 : Créer le fichier de config
+python3 script.py --create-config
+```
+
+#### Dépendances manquantes
+```bash
+# Réinstaller les dépendances
+./install-deps.sh
+
+# Ou manuellement
+pip3 install --user requests urllib3 psutil
+```
+
+#### Permissions insuffisantes
+```bash
+# Vérifier les permissions du répertoire
+ls -la /path/to/medias
+
+# En mode réel, vérifier les droits d'écriture
+python3 script.py --dry-run  # Test sans modification
+```
+
+#### Performance lente
+```bash
+# Réduire le nombre de workers
+python3 script.py -j 2
+
+# Scan basique uniquement
+python3 script.py --quick
+
+# Ignorer les scans média
+python3 script.py --no-media-scan
+```
+
 ## 📊 Monitoring système
 
 Le script surveille automatiquement :
@@ -183,5 +258,3 @@ En cas de problème :
 - **Compatible** : Linux (x86_64/aarch64)
 - **Python** : 3.8+
 - **OS** : Ubuntu 20.04+ / Debian 10+
-
-## 🎯 Utilisation
