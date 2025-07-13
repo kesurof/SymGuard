@@ -258,3 +258,27 @@ En cas de problème :
 - **Compatible** : Linux (x86_64/aarch64)
 - **Python** : 3.8+
 - **OS** : Ubuntu 20.04+ / Debian 10+
+
+## 📊 Modes de notification des serveurs média
+
+Lorsque vous confirmez la suppression de fichiers, le script vous propose **3 modes** de notification :
+
+### ⚡ Mode en masse (rapide)
+- **Recommandé pour** : Suppressions importantes (>100 fichiers)
+- **Fonctionnement** : Scan complet de toute la bibliothèque
+- **Avantages** : Très rapide, détecte tous les changements
+- **Inconvénients** : Peut être intensif sur gros catalogues
+
+### 🎯 Mode individuel (précis)  
+- **Recommandé pour** : Suppressions ciblées (<50 fichiers)
+- **Fonctionnement** : Analyse chaque fichier et notifie par titre
+- **Avantages** : Notifications précises, évite scans inutiles
+- **Inconvénients** : Plus lent pour gros volumes
+
+### ⏭️ Mode aucun (désactivé)
+- **Recommandé pour** : Tests ou maintenance
+- **Fonctionnement** : Aucune notification envoyée
+- **Avantages** : Rapide, n'interfère pas avec les serveurs
+- **Inconvénients** : Scan manuel requis ensuite
+
+> 💡 **Conseil** : Le script analyse automatiquement vos fichiers pour identifier les séries (format SxxExx) et films (avec année) pour des notifications optimisées.

@@ -5,6 +5,42 @@ Toutes les modifications notables de SymGuard seront documentées dans ce fichie
 Le format est basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.0.0/),
 et ce projet adhère au [Versionnage Sémantique](https://semver.org/lang/fr/).
 
+## [2.0.3] - 2025-01-13
+
+### ✨ Nouvelles fonctionnalités
+- **Option scan individuel vs en masse** : Choix lors de la confirmation entre :
+  - Mode masse : scan complet rapide (comme avant)
+  - Mode individuel : notifications précises par fichier/titre
+  - Mode aucun : désactiver ponctuellement les notifications
+- **Analyse intelligente des fichiers média** : 
+  - Parsing automatique des noms de séries (SxxExx)
+  - Détection des films avec année
+  - Reconnaissance des structures de dossiers
+- **Notifications ciblées** :
+  - Sonarr : rafraîchissement par série identifiée
+  - Radarr : rafraîchissement par film identifié
+  - Évite les scans complets inutiles
+
+### 🔧 Améliorations techniques  
+- Ajout imports manquants (`gc`, `re`)
+- Correction fonction `interactive_config_setup()` incomplète
+- Gestion gracieuse des dépendances optionnelles (`psutil`, `requests`)
+- Support fallback si modules non disponibles
+- Nouvelle option `--no-media-scan` pour ignorer complètement
+- Amélioration gestion d'erreurs API
+
+### 🐛 Corrections de bugs
+- Erreur "API key manquante" bloquant l'exécution
+- Imports manquants causant des crashes
+- Fonctions incomplètes dans le setup interactif
+- Gestion d'erreur insuffisante pour dépendances
+
+### 📚 Documentation
+- Section troubleshooting dans README.md
+- Documentation option `--no-media-scan`
+- Exemples de configuration améliorés
+- Guide résolution problèmes dépendances
+
 ## [2.0.2] - 2025-01-13
 
 ### ✨ Ajouté
